@@ -1,44 +1,37 @@
-import React, {Fragment} from "react";
-import {DrizzleContext} from "@drizzle/react-plugin";
-import {Drizzle} from "@drizzle/store";
-
-import MyStringStore from "./contracts/MyStringStore.json";
+import React, { useState, useEffect, Fragment } from 'react'
 import ReadString from "./ReadString";
 import SetString from "./SetString";
 
-import { newContextComponents } from "@drizzle/react-components";
-const { AccountData, ContractData, ContractForm } = newContextComponents;
+const App = props => {
+  const [drizzleReadinessState, setDrizzleReadinessState] = useState({drizzleState: null, loading: true})
+  const { drizzle } = props
 
-const drizzleOptions = {
-    contracts: [MyStringStore],
-};
+  useEffect(
+      () => {
+        const unsubscribe = drizzle.store.subscribe( () => {
+          // every time the store updates, grab the state from drizzle
+          const drizzleState = drizzle.store.getState()
+          // check to see if it's ready, if so, update local component state
+          if (drizzleState.drizzleStatus.initialized) {
+            setDrizzleReadinessState({drizzleState: drizzleState, loading: false})
+          }
+        })
+        return () => {
+          unsubscribe()
+        }
+      }, [drizzle.store, drizzleReadinessState]
+  )
 
-const drizzle = new Drizzle(drizzleOptions);
+  return (
+      drizzleReadinessState.loading ?
+          "Loading Drizzle..."
+          :
+          <Fragment>
+            <ReadString drizzle={drizzle} drizzleState={drizzleReadinessState.drizzleState} />
+            <SetString drizzle={drizzle} drizzleState={drizzleReadinessState.drizzleState} />
 
-const App = () => {
-    return (
-        <DrizzleContext.Provider drizzle={drizzle}>
-            <DrizzleContext.Consumer>
-                {drizzleContext => {
-                    const {drizzle, drizzleState, initialized} = drizzleContext;
-
-                    if (!initialized) {
-                        return "Loading..."
-                    }
-
-                    return (
-                        <Fragment>
-                            <ReadString drizzle={drizzle} drizzleState={drizzleState}/>
-                            <SetString drizzle={drizzle} drizzleState={drizzleState}/>
-                            <AccountData drizzle={drizzle} drizzleState={drizzleState} accountIndex={0} />
-                            <ContractData contract="MyStringStore" method="myString" drizzle={drizzle} drizzleState={drizzleState}/>
-                            <ContractForm  contract="MyStringStore" method="set" drizzle={drizzle} drizzleState={drizzleState} />
-                        </Fragment>
-                    )
-                }}
-            </DrizzleContext.Consumer>
-        </DrizzleContext.Provider>
-    );
+          </Fragment>
+  )
 }
 
-export default App;
+export default App
