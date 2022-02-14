@@ -1,6 +1,5 @@
 import React, { useState, useEffect, Fragment } from 'react'
-import ReadString from "./ReadString";
-import SetString from "./SetString";
+import Game from "./Game";
 
 const App = props => {
   const [drizzleReadinessState, setDrizzleReadinessState] = useState({drizzleState: null, loading: true})
@@ -27,9 +26,7 @@ const App = props => {
           "Loading Drizzle..."
           :
           <Fragment>
-            <ReadString drizzle={drizzle} drizzleState={drizzleReadinessState.drizzleState} />
-            <SetString drizzle={drizzle} drizzleState={drizzleReadinessState.drizzleState} />
-
+            <Game drizzle={drizzle} drizzleState={drizzleReadinessState.drizzleState} />
           </Fragment>
   )
 }
