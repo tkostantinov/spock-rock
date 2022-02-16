@@ -1,7 +1,7 @@
 import React, {useState, useEffect, Fragment} from "react"
 import PeerJs from "peerjs";
-import RPS from './contracts/RPS.json';
-import {generateHash, generateSalt} from "./utils";
+import RPS from '../contracts/RPS.json';
+import {generateHash, generateSalt} from "../utils";
 import ResolveButton from "./ResolveButton";
 import CountDown from "./CountDown";
 import PlayerControls from "./PlayerControls";
@@ -18,11 +18,12 @@ const Game = props => {
     const [player2Balance, setPlayer2Balance] = useState(0);
     const [movePlayer1, setMovePlayer1] = useState(null);
     const [movePlayer2, setMovePlayer2] = useState(null);
-    const [player2Move, setPlayer2Move] = useState(null);
     const [gameContractAddress, setGameContractAddress] = useState(null);
     const [salt, setSalt] = useState("");
     const [hash, setHash] = useState("");
     const [gameTimeout, setGameTimeout] = useState(0);
+    const [startGame, setStartGame] = useState(false);
+    const [gameStake, setGameStake] = useState("0.01");
 
     const [gameType, setGameType] = useState(null);
     const [hostAddress, setHostAddress] = useState("");
@@ -37,7 +38,6 @@ const Game = props => {
             }
         }, []
     )
-
 
     useEffect(
         async () => {
@@ -66,10 +66,11 @@ const Game = props => {
                     console.log("HOST has connection...", conn);
 
                     setPlayer2Address(conn.peer);
+                    setStartGame(true);
 
-                    conn.on('open', function() {
+                    conn.on('open', function () {
                         // Receive messages
-                        conn.on('data', function(data) {
+                        conn.on('data', function (data) {
                             console.log("HOST RECEIVED MESSAGE: ", data);
                         });
 
@@ -89,11 +90,14 @@ const Game = props => {
                     conn.send("HEY HEY MESSAGE");
 
                     conn.on('open', function () {
-                        conn.on('data', function(data) {
+                        conn.on('data', function (data) {
                             console.log("GUEST RECEIVED MESSAGE: ", data);
 
-                            if(typeof data === "object" && data.action === "GAME_START"){
+                            if (typeof data === "object" && data.action === "GAME_START") {
                                 setGameContractAddress(data.payload.contractAddress);
+                                setGameTimeout(data.payload.timeout);
+                                setGameStake(data.payload.gameStake);
+                                setStartGame(true);
                             }
                         });
 
@@ -114,13 +118,14 @@ const Game = props => {
         console.log("CONTRACT instance", contractInstance);
 
         const timeout = await contractInstance.methods.TIMEOUT.call().call();
-        setGameTimeout(5);
+        setGameTimeout(timeout);
 
         const message = {
             action: "GAME_START",
             payload: {
                 "contractAddress": contractInstance.options.address,
-                "timeout": timeout
+                "timeout": timeout,
+                "gameStake": gameStake
             }
         };
 
@@ -205,7 +210,7 @@ const Game = props => {
             arguments: [hash, player2Address]
         }).send({
             from: player1Address,
-            value: drizzle.web3.utils.toWei("1", "ether"),
+            value: drizzle.web3.utils.toWei(gameStake, "ether"),
         }).then(instance => {
             setGameContractAddress(instance.options.address);
             initiateGame(instance);
@@ -229,7 +234,7 @@ const Game = props => {
 
         gameContract.methods.play(move).send({
             from: player2Address,
-            value: drizzle.web3.utils.toWei("1", "ether"),
+            value: drizzle.web3.utils.toWei(gameStake, "ether"),
         }).on('receipt', function (value) {
             console.log('receipt', value);
 
@@ -241,10 +246,10 @@ const Game = props => {
     if (gameType === null) {
         return (
             <Fragment>
-                <h1>GAME Rock Paper Scissors Lizard Spock</h1>
+                <h1>Rock Paper Scissors Lizard Spock</h1>
                 <button onClick={() => setGameType("host")}>HOST GAME</button>
                 <hr/>
-                HOST ADDRESS:
+                JOIN GAME AT ADDRESS:
                 <input
                     defaultValue={hostAddress}
                     onChange={
@@ -258,44 +263,63 @@ const Game = props => {
     } else if (gameType === "host") {
         return (
             <Fragment>
-                <h1>GAME Rock Paper Scissors Lizard Spock</h1>
+                <h1>Rock Paper Scissors Lizard Spock (HOST)</h1>
+                {startGame === false && (
+                    <Fragment>
+                        <h2>waiting for player 2...</h2>
+                        <h2>join address: {player1Address}</h2>
+                    </Fragment>
+                )}
+                {startGame === true && (
                 <PlayerControls
                     title="PLAYER 1"
                     address={player1Address}
                     balance={player1Balance}
-                    onMove={handlePlayMovePlayer1}/>
+                    onMove={handlePlayMovePlayer1} />
+                )}
+                <h2>STAKE</h2>
+                <input defaultValue={gameStake} onChange={(e) => setGameStake(e.target.value)} />
                 <hr/>
                 <ResolveButton onClick={() => handleResolveGame()}/>
                 <hr/>
                 <button key="timeout_player1" onClick={() => handleTimeoutPlayer1()}>TIMEOUT CALL BY PLAYER 1 (get
                     refund)
                 </button>
-                <button key="send_message" onClick={() => connection.send("TEST SEND!")}>SEND MESSAGE</button>
                 <hr/>
                 {gameTimeout > 0 && (
                     <CountDown timeout={gameTimeout} onFinish={() => {
                     }}/>
                 )}
+
             </Fragment>
         );
     } else {
         return (
             <Fragment>
-                <h1>GAME Rock Paper Scissors Lizard Spock</h1>
-                <PlayerControls
-                    title="PLAYER 2"
-                    address={player2Address}
-                    balance={player2Balance}
-                    onMove={handlePlayMovePlayer2}/>
-                <hr/>
-                <button key="timeout_player2" onClick={() => handleTimeoutPlayer2()}>TIMEOUT CALL BY PLAYER 2 (scoop
+                <h1>Rock Paper Scissors Lizard Spock (GUEST)</h1>
+                {startGame === false && (
+                    <h2>waiting for player 1 to create a game...</h2>
+                )}
+                {startGame === true && (
+                    <Fragment>
+                    <PlayerControls
+                        title="PLAYER 2"
+                        address={player2Address}
+                        balance={player2Balance}
+                        onMove={handlePlayMovePlayer2} />
+                    <hr/>
+                    <h2>STAKE: {gameStake}</h2>
+                    </Fragment>
+                )}
+                {startGame === true && gameTimeout > 0 && (
+                    <CountDown
+                        timeout={gameTimeout}
+                        onFinish={() => {}}
+                    />
+                )}
+                <button key="timeout_player2" onClick={() => handleTimeoutPlayer2()}>TIMEOUT CALL BY PLAYER 2 (scoop/steel
                     stakes)
                 </button>
-                <button key="send_message" onClick={() => connection.send("TEST SEND!")}>SEND MESSAGE</button>
-                {gameTimeout > 0 && (
-                    <CountDown timeout={gameTimeout} onFinish={() => {
-                    }}/>
-                )}
             </Fragment>
         );
     }

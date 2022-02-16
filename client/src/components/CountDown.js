@@ -1,6 +1,6 @@
 import React, {useEffect, useState} from 'react'
 import useCountDown from "./useCountDown";
-import {formatCountdown} from "./utils";
+import {formatCountdown} from "../utils";
 
 const CountDown = props => {
     const {timeout, onFinish} = props;

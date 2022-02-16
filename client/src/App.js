@@ -1,6 +1,6 @@
 import React, { useState, useEffect, Fragment } from 'react'
 
-import Game from "./Game";
+import Game from "./components/Game";
 
 const App = props => {
   const [drizzleReadinessState, setDrizzleReadinessState] = useState({drizzleState: null, loading: true})
