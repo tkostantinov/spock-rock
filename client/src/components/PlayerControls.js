@@ -1,10 +1,11 @@
 import React from 'react'
 import Move from "./Move";
+import {moves} from "../constants";
 
 const PlayerControls = props => {
     const {title, address, balance, onMove} = props;
 
-    let moves = ["Rock", "Paper", "Scissors", "Lizard", "Spock"];
+
     return (
         <>
             <h2>{title} CONTROLS</h2>

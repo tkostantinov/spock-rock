@@ -1,0 +1,1 @@
+export const moves = ["Rock", "Paper", "Scissors", "Lizard", "Spock"];
