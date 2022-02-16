@@ -14,7 +14,7 @@ const CountDown = props => {
             start();
             setInitialized(true);
             return () => {}
-        }, [timeout]
+        }, [timeout, start]
     );
 
     return (
