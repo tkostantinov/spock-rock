@@ -66,8 +66,7 @@ const Game = props => {
 
     useEffect(
         async () => {
-            if(gameContractAddress)
-            {
+            if (gameContractAddress) {
                 await refreshGameContractBalance();
             }
 
@@ -95,9 +94,8 @@ const Game = props => {
 
     useEffect(
         async () => {
-            console.log("HERE PEER LOGIC", gameType, hostAddress, guestAddress);
-
             if (gameType === "host") {
+
                 peer = new PeerJs(hostAddress, {debug: 1});
                 peer.on('connection', (conn) => {
                     console.log("HOST has connection...", conn);
@@ -121,14 +119,12 @@ const Game = props => {
                         connection = conn;
                     });
                 });
-
             } else if (gameType === "guest") {
+
                 peer = new PeerJs(guestAddress, {debug: 1});
 
                 peer.on('open', function (id) {
                     let conn = peer.connect(hostAddress);
-
-                    conn.send("HEY HEY MESSAGE");
 
                     conn.on('open', function () {
                         conn.on('data', function (data) {
@@ -152,8 +148,6 @@ const Game = props => {
                         connection = conn;
                     });
                 });
-
-
             } else {
             }
 
@@ -347,7 +341,7 @@ const Game = props => {
                     </Fragment>
                 )}
                 {finishGame === true && (
-                    <h2>GUEST PLAYED: {moves[moveGuest - 1]} - YOU PLAYED: {moves[moveHost -1]}</h2>
+                    <h2>GUEST PLAYED: {moves[moveGuest - 1]} - YOU PLAYED: {moves[moveHost - 1]}</h2>
                 )}
 
                 {showResolveButton() && (<ResolveButton onClick={() => handleResolveGame()}/>)}
@@ -393,7 +387,7 @@ const Game = props => {
                 )}
                 <button key="timeout_guest" onClick={() => handleTimeoutGuest()}>TIMEOUT CALL BY GUEST
                     (scoop/steel
-                    stakes)
+                    stakes if the host hast called decide winner (bug in the contract!!! see j1Timeout))
                 </button>
             </Fragment>
         );
