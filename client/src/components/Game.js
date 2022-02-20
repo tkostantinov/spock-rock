@@ -2,10 +2,11 @@ import React, {useState, useEffect, Fragment} from "react"
 import PeerJs from "peerjs";
 import RPS from '../contracts/RPS.json';
 import {generateHash, generateSalt} from "../utils";
+import {moves} from "../constants";
 import ResolveButton from "./ResolveButton";
 import CountDown from "./CountDown";
 import PlayerControls from "./PlayerControls";
-import {moves} from "../constants";
+import {useBeforeunload} from "react-beforeunload";
 
 let peer = null;
 let connection = null;
@@ -20,6 +21,7 @@ const Game = props => {
     const [moveHost, setMoveHost] = useState(null);
     const [moveGuest, setMoveGuest] = useState(null);
     const [gameContractAddress, setGameContractAddress] = useState(null);
+    const [gameContractBalance, setGameContractBalance] = useState(null);
     const [salt, setSalt] = useState("");
     const [hash, setHash] = useState("");
     const [gameTimeout, setGameTimeout] = useState(0);
@@ -29,15 +31,49 @@ const Game = props => {
 
     const [gameType, setGameType] = useState(null);
 
+    const showResolveButton = () => {
+        return moveHost !== null && moveGuest !== null && gameContractBalance > 0;
+    }
+
+    const showCounter = () => {
+        return startGame === true && finishGame === false && gameTimeout > 0;
+    }
+
+    const showControls = () => {
+        return startGame === true && finishGame === false;
+    }
+
+    const isWaitingForGuestMove = () => {
+        return startGame === true && guestAddress !== null && moveGuest === null;
+    }
+
+    useBeforeunload((event) => {
+        if (gameContractBalance > 0) {
+            event.preventDefault();
+        }
+    });
+
     useEffect(
         async () => {
-
             return () => {
-                console.log("HERE CLOSING CONNECTIONS...");
+                console.log("CLOSING CONNECTIONS...");
                 connection.close();
                 peer.disconnect();
             }
         }, []
+    )
+
+
+    useEffect(
+        async () => {
+            if(gameContractAddress)
+            {
+                await refreshGameContractBalance();
+            }
+
+            return () => {
+            }
+        }, [drizzle.store, drizzleState, moveGuest, moveHost]
     )
 
     useEffect(
@@ -74,8 +110,7 @@ const Game = props => {
                         conn.on('data', function (data) {
                             console.log("HOST RECEIVED MESSAGE: ", data);
 
-                            if (typeof data === "object" && data.action === "PLAYER_2_MOVE") {
-                                console.log("HERE SETTING ...", data.payload);
+                            if (typeof data === "object" && data.action === "GUEST_MOVE") {
                                 setMoveGuest(data.payload.move);
                                 setFinishGame(true);
                             }
@@ -106,10 +141,11 @@ const Game = props => {
                                 setStartGame(true);
                             }
 
-                            if (typeof data === "object" && data.action === "PLAYER_1_MOVE") {
+                            if (typeof data === "object" && data.action === "HOST_MOVE") {
                                 console.log("HERE SETTING ...", data.payload);
                                 setMoveHost(data.payload.move);
                                 setFinishGame(true);
+
                             }
                         });
 
@@ -125,6 +161,16 @@ const Game = props => {
             }
         }, [drizzleState, gameType, hostAddress, guestAddress]
     )
+
+    const refreshGameContractBalance = async () => {
+
+        const balance = await drizzle.web3.eth.getBalance(gameContractAddress);
+
+        const balanceReadable = drizzle.web3.utils.fromWei(balance, "ether");
+
+        console.log("CONTRACT BALANCE = ", balanceReadable);
+        setGameContractBalance(balanceReadable);
+    }
 
     const initiateGame = async (contractInstance) => {
         console.log("CONTRACT instance", contractInstance);
@@ -146,11 +192,11 @@ const Game = props => {
 
     const notifyGuest = (message) => {
         connection.send(message);
-        console.log("SENDING MESSAGE TO PLAYER 2", message);
+        console.log("SENDING MESSAGE TO GUEST", message);
     }
 
     const handleTimeoutHost = async () => {
-        console.log("HANDLE TIMEOUT PLAYER - TAKE BACK THE FUNDS - PLAYER 2 DID NOT PLAY HIS MOVE!");
+        console.log("HANDLE TIMEOUT PLAYER - TAKE BACK THE FUNDS - GUEST DID NOT PLAY HIS MOVE!");
         console.log(drizzle.web3);
 
         let gameContract = new drizzle.web3.eth.Contract(RPS.abi, gameContractAddress);
@@ -159,14 +205,14 @@ const Game = props => {
 
         gameContract.methods.j2Timeout().send({
             from: hostAddress
-        }).on('receipt', function (value) {
-            console.log('receipt', value);
+        }).on('confirmation', function (value) {
+            console.log('confirmation', value);
         }).catch(e => console.log("ERROR", e));
     }
 
     const handleTimeoutGuest = async () => {
-        console.log("HANDLE TIMEOUT PLAYER 2 - TAKE FUNDS - PLAYER 1 DID NOT RESOLVE THE GAME ON TIME");
-        console.log(drizzle.web3);
+        console.log("HANDLE TIMEOUT GUEST - TAKE FUNDS - HOST DID NOT RESOLVE THE GAME ON TIME");
+
 
         let gameContract = new drizzle.web3.eth.Contract(RPS.abi, gameContractAddress);
 
@@ -174,15 +220,15 @@ const Game = props => {
 
         gameContract.methods.j1Timeout().send({
             from: guestAddress
-        }).on('receipt', function (value) {
-            console.log('receipt', value);
+        }).on('confirmation', function (value) {
+            console.log('confirmation', value);
         }).catch(e => console.log("ERROR", e));
     }
 
     const handleResolveGame = async () => {
 
         console.log("HANDLE RESOLVE GAME");
-        console.log(drizzle.web3);
+
 
         let gameContract = new drizzle.web3.eth.Contract(RPS.abi, gameContractAddress);
 
@@ -191,9 +237,9 @@ const Game = props => {
 
         gameContract.methods.solve(moveHost, salt).send({
             from: hostAddress,
-        }).on('receipt', function (value) {
-            console.log('receipt', value);
-            notifyHost({action: "PLAYER_1_MOVE", payload: {move: moveHost}});
+        }).on('confirmation', function (value) {
+            console.log('confirmation', value);
+            notifyHost({action: "HOST_MOVE", payload: {move: moveHost}});
 
         }).catch(e => console.log("ERROR", e));
     }
@@ -201,7 +247,7 @@ const Game = props => {
     const handlePlayMoveHost = async (move) => {
         setMoveHost(move);
         setFinishGame(true);
-        console.log(drizzle.web3);
+
 
         let gameContract = new drizzle.web3.eth.Contract(RPS.abi);
 
@@ -215,10 +261,7 @@ const Game = props => {
         setSalt(salt);
 
         const hash = generateHash(drizzle.web3, move, salt);
-
         console.log("HASH SALT deploy", hash, salt);
-
-        setHash(hash);
 
         gameContract.deploy({
             data: RPS.bytecode,
@@ -233,28 +276,29 @@ const Game = props => {
     }
 
     const notifyHost = (message) => {
-        console.log("SENDING MESSAGE TO PLAYER 1", message);
+        console.log("SENDING MESSAGE TO HOST", message);
         connection.send(message);
     }
 
     const handlePlayMoveGuest = async (move) => {
         setMoveGuest(move);
         setFinishGame(true);
-        console.log(drizzle.web3);
 
         let gameContract = new drizzle.web3.eth.Contract(RPS.abi, gameContractAddress);
 
         console.log("GAME CONTRACT", gameContract);
-        console.log("CALLING PLAY FROM PLAYER 2", move);
-        console.log("PLAYER 2 address", guestAddress);
+        console.log("CALLING PLAY FROM GUEST", move);
+        console.log("GUEST address", guestAddress);
 
         gameContract.methods.play(move).send({
             from: guestAddress,
             value: drizzle.web3.utils.toWei(gameStake, "ether"),
-        }).on('receipt', function (value) {
-            console.log('receipt', value);
+        }).on('confirmation', async function (value) {
+            console.log('confirmation', value);
 
-            notifyHost({action: "PLAYER_2_MOVE", payload: {move}});
+            await refreshGameContractBalance();
+
+            notifyHost({action: "GUEST_MOVE", payload: {move}});
 
         }).catch(e => console.log("ERROR", e));
     }
@@ -280,13 +324,17 @@ const Game = props => {
         return (
             <Fragment>
                 <h1>Rock Paper Scissors Lizard Spock (HOST)</h1>
+                <h2>CONTRACT BALANCE: {gameContractBalance + " ETH"}</h2>
                 {startGame === false && (
                     <Fragment>
-                        <h2>waiting for player 2...</h2>
+                        <h2>waiting for guest ...</h2>
                         <h2>join address: {hostAddress}</h2>
                     </Fragment>
                 )}
-                {startGame === true && finishGame === false && (
+                {isWaitingForGuestMove() && (
+                    <h2>waiting for guest to make his move ...</h2>
+                )}
+                {showControls() && (
                     <Fragment>
                         <PlayerControls
                             title="HOST"
@@ -299,10 +347,10 @@ const Game = props => {
                     </Fragment>
                 )}
                 {finishGame === true && (
-                    <h2>GUEST PLAYED: {moves[moveGuest]} - YOU PLAYED: {moves[moveHost]}</h2>
+                    <h2>GUEST PLAYED: {moves[moveGuest - 1]} - YOU PLAYED: {moves[moveHost -1]}</h2>
                 )}
 
-                <ResolveButton onClick={() => handleResolveGame()}/>
+                {showResolveButton() && (<ResolveButton onClick={() => handleResolveGame()}/>)}
                 <hr/>
                 <button key="timeout_host" onClick={() => handleTimeoutHost()}>TIMEOUT CALL BY HOST (get
                     refund)
@@ -318,10 +366,11 @@ const Game = props => {
         return (
             <Fragment>
                 <h1>Rock Paper Scissors Lizard Spock (GUEST)</h1>
+                <h2>CONTRACT BALANCE: {gameContractBalance + " ETH"}</h2>
                 {startGame === false && (
-                    <h2>waiting for player 1 to create a game...</h2>
+                    <h2>waiting for host to create a game...</h2>
                 )}
-                {startGame === true && finishGame === false && (
+                {showControls() && (
                     <Fragment>
                         <PlayerControls
                             title="GUEST"
@@ -332,7 +381,7 @@ const Game = props => {
                         <h2>STAKE: {gameStake}</h2>
                     </Fragment>
                 )}
-                {startGame === true && finishGame === false && gameTimeout > 0 && (
+                {showCounter() && (
                     <CountDown
                         timeout={gameTimeout}
                         onFinish={() => {
@@ -340,9 +389,9 @@ const Game = props => {
                     />
                 )}
                 {finishGame === true && (
-                    <h2>HOST PLAYED: {moves[moveHost]} - YOU PLAYED: {moves[moveGuest]}</h2>
+                    <h2>HOST PLAYED: {moves[moveHost - 1]} - YOU PLAYED: {moves[moveGuest - 1]}</h2>
                 )}
-                <button key="timeout_guest" onClick={() => handleTimeoutGuest()}>TIMEOUT CALL BY PLAYER 2
+                <button key="timeout_guest" onClick={() => handleTimeoutGuest()}>TIMEOUT CALL BY GUEST
                     (scoop/steel
                     stakes)
                 </button>

@@ -10,9 +10,8 @@ const PlayerControls = props => {
         <>
             <h2>{title} CONTROLS</h2>
             <h4>ADDRESS: {address}</h4>
-            <h4>BALANCE: {balance}</h4>
             {moves.map((move, index) => (
-                <Move key={index} name={move} onClick={() => onMove(index)} value={index}/>)
+                <Move key={index} name={move} onClick={() => onMove(index+1)} value={index}/>)
             )}
         </>
     );
