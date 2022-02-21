@@ -1,13 +1,13 @@
 import React, {useState, useEffect, Fragment} from "react"
+import {useBeforeunload} from "react-beforeunload";
 import PeerJs from "peerjs";
 import {v4 as uuidv4} from 'uuid';
 import RPS from '../contracts/RPS.json';
-import {generateHash, generateSalt} from "../utils";
+import {generateHash, generateSalt, decideWinner} from "../utils";
 import {moves} from "../constants";
 import ResolveButton from "./ResolveButton";
 import CountDown from "./CountDown";
 import PlayerControls from "./PlayerControls";
-import {useBeforeunload} from "react-beforeunload";
 
 let peer = null;
 let connection = null;
@@ -34,6 +34,8 @@ const Game = props => {
     const [finishGame, setFinishGame] = useState(false);
     const [gameStake, setGameStake] = useState("0.01");
     const [gameType, setGameType] = useState(null);
+    const [showResolveGameButton, setShowResolveGameButton] = useState(true);
+    const [winner, setWinner] = useState("GAME IN PROGRESS...");
 
     const hostGame = () => {
         setHostPeerId(uuidv4());
@@ -45,7 +47,7 @@ const Game = props => {
     }
 
     const showResolveButton = () => {
-        return moveHost !== null && moveGuest !== null && gameContractBalance > 0;
+        return moveHost !== null && moveGuest !== null && gameContractBalance > 0 && showResolveGameButton;
     }
 
     const showCounter = () => {
@@ -62,15 +64,14 @@ const Game = props => {
 
     useBeforeunload((event) => {
         if (gameContractBalance > 0) {
+            console.log("SOMEBODY SHOULD CALL A TIMEOUT");
             event.preventDefault();
         }
     });
 
     useEffect(
         async () => {
-
             console.log("HERE! initializing the component");
-
 
             return () => {
                 console.log("CLOSING CONNECTIONS...");
@@ -90,7 +91,7 @@ const Game = props => {
             return () => {
             }
         }, [hostAddress, guestAddress]
-    )
+    );
 
     useEffect(
         async () => {
@@ -99,10 +100,26 @@ const Game = props => {
                 await refreshPlayerBalances();
             }
 
+            if (moveHost !== null && moveGuest !== null) {
+                const gameResult = decideWinner(moveHost, moveGuest);
+
+                switch (gameResult) {
+                    case 0:
+                        setWinner("DRAW");
+                        break;
+                    case 1:
+                        setWinner("HOST");
+                        break;
+                    case -1:
+                        setWinner("GUEST");
+                        break;
+                }
+            }
+
             return () => {
             }
         }, [drizzle.store, drizzleState, moveGuest, moveHost]
-    )
+    );
 
     useEffect(
         async () => {
@@ -120,7 +137,6 @@ const Game = props => {
                 }
 
             } else {
-
             }
             return () => {
             }
@@ -285,6 +301,7 @@ const Game = props => {
 
         console.log("HANDLE RESOLVE GAME");
 
+        setShowResolveGameButton(false);
 
         let gameContract = new drizzle.web3.eth.Contract(RPS.abi, gameContractAddress);
 
@@ -293,11 +310,18 @@ const Game = props => {
 
         gameContract.methods.solve(moveHost, salt).send({
             from: hostAddress,
-        }).on('confirmation', function (value) {
-            if (value === 1)
-                notifyHost({action: "HOST_MOVE", payload: {move: moveHost}});
+        }).on('receipt', function (value) {
 
-        }).catch(e => console.log("ERROR", e));
+        }).on('confirmation', function (value) {
+            if (value === 1) {
+                notifyHost({action: "HOST_MOVE", payload: {move: moveHost}});
+                setShowResolveGameButton(false);
+            }
+
+        }).catch(e => {
+            console.log("ERROR", e);
+            setShowResolveGameButton(true);
+        });
     }
 
     const handlePlayMoveHost = async (move) => {
@@ -403,14 +427,18 @@ const Game = props => {
                     </Fragment>
                 )}
                 {finishGame === true && (
-                    <h2>GUEST PLAYED: {moves[moveGuest - 1]} - YOU PLAYED: {moves[moveHost - 1]}</h2>
+                    <Fragment>
+                        <h2>GUEST PLAYED: {moves[moveGuest - 1]} - YOU PLAYED: {moves[moveHost - 1]}</h2>
+                        <h1>WINNER: {winner}</h1>
+                    </Fragment>
                 )}
 
                 {showResolveButton() && (<ResolveButton onClick={() => handleResolveGame()}/>)}
                 <hr/>
-                {moveGuest === null && (<button key="timeout_host" onClick={() => handleTimeoutHost()}>TIMEOUT CALL BY HOST (get
-                    refund)
-                </button>)}
+                {moveGuest === null && (
+                    <button key="timeout_host" onClick={() => handleTimeoutHost()}>TIMEOUT CALL BY HOST (get
+                        refund)
+                    </button>)}
                 <hr/>
                 {moveGuest === null && gameTimeout > 0 && (
                     <CountDown timeout={gameTimeout} onFinish={() => {
@@ -445,7 +473,10 @@ const Game = props => {
                     />
                 )}
                 {finishGame === true && (
-                    <h2>HOST PLAYED: {moves[moveHost - 1]} - YOU PLAYED: {moves[moveGuest - 1]}</h2>
+                    <Fragment>
+                        <h2>HOST PLAYED: {moves[moveHost - 1]} - YOU PLAYED: {moves[moveGuest - 1]}</h2>
+                        <h1>WINNER: {winner}</h1>
+                    </Fragment>
                 )}
                 {moveHost === null && (
                     <button key="timeout_guest" onClick={() => handleTimeoutGuest()}>TIMEOUT CALL BY GUEST

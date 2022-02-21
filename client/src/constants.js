@@ -1,1 +1,1 @@
-export const moves = ["Rock", "Paper", "Scissors", "Lizard", "Spock"];
+export const moves = ["ROCK", "PAPER", "SCISSIORS", "LIZARD", "SPOCK"];
