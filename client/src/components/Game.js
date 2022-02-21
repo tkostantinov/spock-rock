@@ -1,5 +1,6 @@
 import React, {useState, useEffect, Fragment} from "react"
 import PeerJs from "peerjs";
+import {v4 as uuidv4} from 'uuid';
 import RPS from '../contracts/RPS.json';
 import {generateHash, generateSalt} from "../utils";
 import {moves} from "../constants";
@@ -21,22 +22,34 @@ const Game = props => {
     const [moveHost, setMoveHost] = useState(null);
     const [moveGuest, setMoveGuest] = useState(null);
     const [gameContractAddress, setGameContractAddress] = useState(null);
-    const [gameContractBalance, setGameContractBalance] = useState(null);
+    const [gameContractBalance, setGameContractBalance] = useState(0);
     const [salt, setSalt] = useState("");
     const [hash, setHash] = useState("");
+
+    const [hostPeerId, setHostPeerId] = useState(null);
+    const [guestPeerId, setGuestPeerId] = useState(null);
+
     const [gameTimeout, setGameTimeout] = useState(0);
     const [startGame, setStartGame] = useState(false);
     const [finishGame, setFinishGame] = useState(false);
     const [gameStake, setGameStake] = useState("0.01");
-
     const [gameType, setGameType] = useState(null);
+
+    const hostGame = () => {
+        setHostPeerId(uuidv4());
+        setGameType("host");
+    }
+
+    const joinGame = () => {
+        setGameType("guest");
+    }
 
     const showResolveButton = () => {
         return moveHost !== null && moveGuest !== null && gameContractBalance > 0;
     }
 
     const showCounter = () => {
-        return startGame === true && finishGame === false && gameTimeout > 0;
+        return startGame === true && finishGame === false && moveHost === null;
     }
 
     const showControls = () => {
@@ -55,6 +68,10 @@ const Game = props => {
 
     useEffect(
         async () => {
+
+            console.log("HERE! initializing the component");
+
+
             return () => {
                 console.log("CLOSING CONNECTIONS...");
                 connection.close();
@@ -63,11 +80,23 @@ const Game = props => {
         }, []
     )
 
+    useEffect(
+        async () => {
+
+            if (guestAddress !== null) {
+                await refreshPlayerBalances();
+            }
+
+            return () => {
+            }
+        }, [hostAddress, guestAddress]
+    )
 
     useEffect(
         async () => {
             if (gameContractAddress) {
                 await refreshGameContractBalance();
+                await refreshPlayerBalances();
             }
 
             return () => {
@@ -77,13 +106,19 @@ const Game = props => {
 
     useEffect(
         async () => {
-            console.log("GAME TYPE = ", gameType);
+            console.log("SETTING ADDRESSES gameType ", gameType);
 
             if (gameType === "host") {
-                setHostAddress(drizzleState.accounts[0]);
+                if (drizzleState.accounts[0] !== hostAddress) {
+                    console.log("SETTING HOST ADDRESS", drizzleState.accounts[0]);
+                    setHostAddress(drizzleState.accounts[0]);
+                }
             } else if (gameType === "guest") {
-                setGuestAddress(drizzleState.accounts[0]);
-                setHostAddress(hostAddress);
+                if (drizzleState.accounts[0] !== guestAddress) {
+                    console.log("SETTING GUEST ADDRESS", drizzleState.accounts[0]);
+                    setGuestAddress(drizzleState.accounts[0]);
+                }
+
             } else {
 
             }
@@ -94,19 +129,24 @@ const Game = props => {
 
     useEffect(
         async () => {
+
             if (gameType === "host") {
 
-                peer = new PeerJs(hostAddress, {debug: 1});
+                peer = new PeerJs(hostPeerId, {debug: 0});
                 peer.on('connection', (conn) => {
                     console.log("HOST has connection...", conn);
 
-                    setGuestAddress(conn.peer);
+                    setGuestPeerId(conn.peer);
                     setStartGame(true);
 
                     conn.on('open', function () {
                         // Receive messages
                         conn.on('data', function (data) {
                             console.log("HOST RECEIVED MESSAGE: ", data);
+
+                            if (typeof data === "object" && data.action === "GUEST_ADDRESS") {
+                                setGuestAddress(data.payload.address);
+                            }
 
                             if (typeof data === "object" && data.action === "GUEST_MOVE") {
                                 setMoveGuest(data.payload.move);
@@ -121,14 +161,17 @@ const Game = props => {
                 });
             } else if (gameType === "guest") {
 
-                peer = new PeerJs(guestAddress, {debug: 1});
+                peer = new PeerJs(guestPeerId, {debug: 0});
 
                 peer.on('open', function (id) {
-                    let conn = peer.connect(hostAddress);
+                    let conn = peer.connect(hostPeerId);
 
                     conn.on('open', function () {
+
                         conn.on('data', function (data) {
                             console.log("GUEST RECEIVED MESSAGE: ", data);
+
+                            connection.send({action: "GUEST_ADDRESS", payload: {address: drizzleState.accounts[0]}});
 
                             if (typeof data === "object" && data.action === "GAME_START") {
                                 setGameContractAddress(data.payload.contractAddress);
@@ -141,7 +184,6 @@ const Game = props => {
                                 console.log("HERE SETTING ...", data.payload);
                                 setMoveHost(data.payload.move);
                                 setFinishGame(true);
-
                             }
                         });
 
@@ -153,7 +195,7 @@ const Game = props => {
 
             return () => {
             }
-        }, [drizzleState, gameType, hostAddress, guestAddress]
+        }, [gameType]
     )
 
     const refreshGameContractBalance = async () => {
@@ -165,6 +207,27 @@ const Game = props => {
         console.log("CONTRACT BALANCE = ", balanceReadable);
         setGameContractBalance(balanceReadable);
     }
+
+    const refreshPlayerBalances = async () => {
+
+        if (hostAddress !== null) {
+            const hostBalanceReadable = await getBalance(hostAddress);
+            setHostBalance(hostBalanceReadable);
+        }
+
+        if (guestAddress !== null) {
+            const guestBalanceReadable = await getBalance(guestAddress);
+            setGuestBalance(guestBalanceReadable);
+        }
+
+
+    }
+
+    const getBalance = async (address) => {
+        const balance = await drizzle.web3.eth.getBalance(address);
+        return drizzle.web3.utils.fromWei(balance, "ether");
+    }
+
 
     const initiateGame = async (contractInstance) => {
         console.log("CONTRACT instance", contractInstance);
@@ -200,7 +263,6 @@ const Game = props => {
         gameContract.methods.j2Timeout().send({
             from: hostAddress
         }).on('confirmation', function (value) {
-            console.log('confirmation', value);
         }).catch(e => console.log("ERROR", e));
     }
 
@@ -232,8 +294,8 @@ const Game = props => {
         gameContract.methods.solve(moveHost, salt).send({
             from: hostAddress,
         }).on('confirmation', function (value) {
-            console.log('confirmation', value);
-            notifyHost({action: "HOST_MOVE", payload: {move: moveHost}});
+            if (value === 1)
+                notifyHost({action: "HOST_MOVE", payload: {move: moveHost}});
 
         }).catch(e => console.log("ERROR", e));
     }
@@ -256,6 +318,7 @@ const Game = props => {
 
         const hash = generateHash(drizzle.web3, move, salt);
         console.log("HASH SALT deploy", hash, salt);
+        console.log("GUEST ADDRESS", guestAddress);
 
         gameContract.deploy({
             data: RPS.bytecode,
@@ -288,11 +351,10 @@ const Game = props => {
             from: guestAddress,
             value: drizzle.web3.utils.toWei(gameStake, "ether"),
         }).on('confirmation', async function (value) {
-            console.log('confirmation', value);
-
-            await refreshGameContractBalance();
-
-            notifyHost({action: "GUEST_MOVE", payload: {move}});
+            if (value === 1) {
+                await refreshGameContractBalance();
+                notifyHost({action: "GUEST_MOVE", payload: {move}});
+            }
 
         }).catch(e => console.log("ERROR", e));
     }
@@ -301,28 +363,29 @@ const Game = props => {
         return (
             <Fragment>
                 <h1>Rock Paper Scissors Lizard Spock</h1>
-                <button onClick={() => setGameType("host")}>HOST GAME</button>
+                <button onClick={() => hostGame()}>HOST GAME</button>
                 <hr/>
                 JOIN GAME AT ADDRESS:
                 <input
                     defaultValue={hostAddress}
                     onChange={
                         (e) =>
-                            setHostAddress(e.target.value)
+                            setHostPeerId(e.target.value)
                     }
                 />
-                <button onClick={() => setGameType("guest")}>JOIN GAME</button>
+                <button onClick={() => joinGame()}>JOIN GAME</button>
             </Fragment>
         );
     } else if (gameType === "host") {
         return (
             <Fragment>
                 <h1>Rock Paper Scissors Lizard Spock (HOST)</h1>
+                <h6>BALANCE: {hostBalance} ETH</h6>
                 <h2>CONTRACT BALANCE: {gameContractBalance + " ETH"}</h2>
                 {startGame === false && (
                     <Fragment>
                         <h2>waiting for guest ...</h2>
-                        <h2>join address: {hostAddress}</h2>
+                        <h2>join address: {hostPeerId}</h2>
                     </Fragment>
                 )}
                 {isWaitingForGuestMove() && (
@@ -333,7 +396,6 @@ const Game = props => {
                         <PlayerControls
                             title="HOST"
                             address={hostAddress}
-                            balance={hostBalance}
                             onMove={handlePlayMoveHost}/>
                         <h2>STAKE</h2>
                         <input defaultValue={gameStake} onChange={(e) => setGameStake(e.target.value)}/>
@@ -346,11 +408,11 @@ const Game = props => {
 
                 {showResolveButton() && (<ResolveButton onClick={() => handleResolveGame()}/>)}
                 <hr/>
-                <button key="timeout_host" onClick={() => handleTimeoutHost()}>TIMEOUT CALL BY HOST (get
+                {moveGuest === null && (<button key="timeout_host" onClick={() => handleTimeoutHost()}>TIMEOUT CALL BY HOST (get
                     refund)
-                </button>
+                </button>)}
                 <hr/>
-                {finishGame === false && gameTimeout > 0 && (
+                {moveGuest === null && gameTimeout > 0 && (
                     <CountDown timeout={gameTimeout} onFinish={() => {
                     }}/>
                 )}
@@ -360,6 +422,7 @@ const Game = props => {
         return (
             <Fragment>
                 <h1>Rock Paper Scissors Lizard Spock (GUEST)</h1>
+                <h6>BALANCE: {guestBalance} ETH</h6>
                 <h2>CONTRACT BALANCE: {gameContractBalance + " ETH"}</h2>
                 {startGame === false && (
                     <h2>waiting for host to create a game...</h2>
@@ -369,7 +432,6 @@ const Game = props => {
                         <PlayerControls
                             title="GUEST"
                             address={guestAddress}
-                            balance={guestBalance}
                             onMove={handlePlayMoveGuest}/>
                         <hr/>
                         <h2>STAKE: {gameStake}</h2>
@@ -385,10 +447,11 @@ const Game = props => {
                 {finishGame === true && (
                     <h2>HOST PLAYED: {moves[moveHost - 1]} - YOU PLAYED: {moves[moveGuest - 1]}</h2>
                 )}
-                <button key="timeout_guest" onClick={() => handleTimeoutGuest()}>TIMEOUT CALL BY GUEST
-                    (scoop/steel
-                    stakes if the host hast called decide winner (bug in the contract!!! see j1Timeout))
-                </button>
+                {moveHost === null && (
+                    <button key="timeout_guest" onClick={() => handleTimeoutGuest()}>TIMEOUT CALL BY GUEST
+                        (scoop/steel
+                        stakes if the host hast called decide winner (bug in the contract!!! see j1Timeout))
+                    </button>)}
             </Fragment>
         );
     }
