@@ -113,6 +113,8 @@ const Game = props => {
                     case -1:
                         setWinner("GUEST");
                         break;
+                    default:
+                        console.log("UKNOEN GAME RESULT ", gameResult);
                 }
             }
 

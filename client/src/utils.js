@@ -25,6 +25,8 @@ export const decideWinner = (mHost,mGuest) => {
     const hostItem = moves[mHost -1];
     const guestItem = moves[mGuest -1];
 
+    console.log("DECIDE WINNER ", hostItem, guestItem, mHost, mGuest);
+    
     switch(hostItem) {
         case "ROCK":
             switch (guestItem) {
